@@ -438,17 +438,22 @@ fn print_os_str(s: &OsString, flags: Flags, width: usize, precision: Precision) 
 }
 
 fn quote_file_name(file_name: &str, quoting_style: &QuotingStyle) -> String {
-    match quoting_style {
-        QuotingStyle::Locale | QuotingStyle::Shell => {
-            let escaped = file_name.replace('\'', r"\'");
-            format!("'{escaped}'")
-        }
-        QuotingStyle::ShellEscapeAlways => {
-            let quote = if file_name.contains('\'') { '"' } else { '\'' };
-            format!("{quote}{file_name}{quote}")
-        }
-        QuotingStyle::Quote => file_name.to_string(),
-    }
+    use std::ffi::OsStr;
+    use uucore::quoting_style::{
+        QuotingStyle as UQuotingStyle, locale_aware_escape_name,
+    };
+
+    // GH #9925: delegate to uucore's shell-escape implementation so control
+    // characters (newlines, tabs, etc.) in file names are properly encoded
+    // as `$'\n'`, `$'\t'`, ... matching GNU `stat -c %N` behavior.
+    let style = match quoting_style {
+        QuotingStyle::Locale | QuotingStyle::Shell => UQuotingStyle::SHELL_ESCAPE,
+        QuotingStyle::ShellEscapeAlways => UQuotingStyle::SHELL_ESCAPE_QUOTE,
+        QuotingStyle::Quote => return file_name.to_string(),
+    };
+    locale_aware_escape_name(OsStr::new(file_name), style)
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn warn_invalid_quoting_style(style: &str) {
